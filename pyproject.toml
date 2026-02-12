@@ -1,0 +1,16 @@
+[project]
+name = "selina-audio"
+version = "0.1.0"
+description = "Local ASR + TTS service for Selina (faster-whisper + F5-TTS)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "faster-whisper>=1.1.0",
+    "f5-tts>=1.0.0",
+    "soundfile>=0.13.0",
+    "numpy>=2.0.0",
+    "python-multipart>=0.0.18",
+    "numba>=0.60.0",
+    "llvmlite>=0.43.0",
+]
