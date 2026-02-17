@@ -5,7 +5,7 @@ from faster_whisper import WhisperModel
 
 _model: WhisperModel | None = None
 
-MODEL_SIZE = "large-v3-turbo"
+MODEL_SIZE = "cstr/whisper-large-v3-turbo-german-int8_float32"
 COMPUTE_TYPE = "int8"
 
 

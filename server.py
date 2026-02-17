@@ -1,7 +1,7 @@
 """Selina Audio Service - ASR + TTS on local GPU.
 
-ASR: faster-whisper large-v3-turbo (int8)
-TTS: F5-TTS with voice cloning
+ASR: faster-whisper German large-v3-turbo (int8)
+TTS: Qwen3-TTS-0.6B with preset voices
 """
 
 import io
@@ -15,12 +15,16 @@ import uvicorn
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load ASR at startup (fast, ~1.5GB VRAM)
+    # Load both models at startup (together ~3.9GB, fits in 8GB VRAM)
     from asr import load_model as load_asr
+    from tts import load_model as load_tts
+
     load_asr()
     print("[Server] ASR model ready.")
 
-    # TTS is lazy-loaded on first request (saves VRAM if unused)
+    load_tts()
+    print("[Server] TTS model ready.")
+
     yield
 
 
@@ -30,13 +34,12 @@ app = FastAPI(title="Selina Audio Service", lifespan=lifespan)
 @app.get("/health")
 def health():
     from asr import _model as asr_model
-    from tts import _model as tts_model, _model_de as tts_model_de
+    from tts import _model as tts_model
     return {
         "status": "healthy",
         "models": {
             "asr": asr_model is not None,
-            "tts_en": tts_model is not None,
-            "tts_de": tts_model_de is not None,
+            "tts": tts_model is not None,
         },
     }
 
@@ -62,43 +65,33 @@ async def transcribe_endpoint(
         "language": result["language"],
         "language_probability": result["language_probability"],
         "duration_ms": elapsed_ms,
-        "provider": "faster-whisper-large-v3-turbo",
+        "provider": "faster-whisper-german-v3-turbo",
     })
 
 
 @app.post("/synthesize")
 async def synthesize_endpoint(
     text: str = Form(...),
-    ref_text: str = Form(""),
-    ref_audio: UploadFile | None = File(None),
+    speaker: str = Form("Serena"),
     language: str = Form("de"),
-    speed: float = Form(1.0),
-    nfe_step: int = Form(32),
+    instruct: str = Form(""),
 ):
-    """Synthesize speech from text. Optionally provide reference audio for voice cloning."""
+    """Synthesize speech from text using Qwen3-TTS preset voices."""
     from tts import synthesize
 
     if not text.strip():
         raise HTTPException(400, "Empty text")
 
-    ref_audio_bytes = None
-    if ref_audio is not None:
-        ref_audio_bytes = await ref_audio.read()
-        if len(ref_audio_bytes) == 0:
-            ref_audio_bytes = None
-
     start = time.time()
     try:
         audio_bytes = synthesize(
             text=text,
-            ref_audio_bytes=ref_audio_bytes,
-            ref_text=ref_text,
+            speaker=speaker,
             language=language,
-            speed=speed,
-            nfe_step=nfe_step,
+            instruct=instruct,
         )
-    except ValueError as e:
-        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"TTS synthesis failed: {e}")
 
     elapsed_ms = int((time.time() - start) * 1000)
 
@@ -107,7 +100,7 @@ async def synthesize_endpoint(
         media_type="audio/wav",
         headers={
             "X-Duration-Ms": str(elapsed_ms),
-            "X-Provider": "f5-tts",
+            "X-Provider": "qwen3-tts",
         },
     )
 
