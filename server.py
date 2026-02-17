@@ -1,7 +1,8 @@
-"""Selina Audio Service - ASR + TTS on local GPU.
+"""Selina Audio Service - ASR + TTS + Emotion on local GPU.
 
 ASR: faster-whisper German large-v3-turbo (int8)
 TTS: Qwen3-TTS-0.6B with preset voices
+Emotion: WTME Marker System (regex-based, no GPU)
 """
 
 import io
@@ -10,6 +11,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
 import uvicorn
 
 
@@ -103,6 +105,45 @@ async def synthesize_endpoint(
             "X-Provider": "qwen3-tts",
         },
     )
+
+
+class AnalyzeRequest(BaseModel):
+    text: str
+    sender: str = "user"
+
+
+class ConversationRequest(BaseModel):
+    messages: list[dict]
+
+
+@app.post("/analyze")
+async def analyze_endpoint(req: AnalyzeRequest):
+    """Analyze a single message for emotional markers (ATOs, SEMs)."""
+    from markers import analyze_single
+
+    if not req.text.strip():
+        raise HTTPException(400, "Empty text")
+
+    start = time.time()
+    result = analyze_single(req.text, req.sender)
+    elapsed_ms = int((time.time() - start) * 1000)
+
+    return JSONResponse({**result, "duration_ms": elapsed_ms})
+
+
+@app.post("/analyze/conversation")
+async def analyze_conversation_endpoint(req: ConversationRequest):
+    """Analyze a full conversation through the complete marker pipeline (ATOs → SEMs → CLUs → MEMAs)."""
+    from markers import analyze_conversation
+
+    if not req.messages:
+        raise HTTPException(400, "Empty messages list")
+
+    start = time.time()
+    result = analyze_conversation(req.messages)
+    elapsed_ms = int((time.time() - start) * 1000)
+
+    return JSONResponse({**result, "duration_ms": elapsed_ms})
 
 
 if __name__ == "__main__":
